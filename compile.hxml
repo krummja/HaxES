@@ -1,0 +1,3 @@
+-cp src
+--hl ./build/hl/output.hl
+--main Main
