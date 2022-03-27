@@ -1,3 +1,5 @@
 -cp src
---hl ./build/hl/output.hl
---main Main
+-main Main
+-lib heaps
+-lib hlsdl
+-hl ./build/hl/output.hl

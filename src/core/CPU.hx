@@ -25,13 +25,13 @@ class CPU
     private var bus: Bus;
     private var flags: EnumValueMap<FLAG, Int>;
 
-    private var accum: Int = 0x00;      // Accumulator
-    private var reg_x: Int = 0x00;      // X Register
-    private var reg_y: Int = 0x00;      // Y Register
-    private var stkp: Int = 0x00;       // Stack Pointer
-    private var pc: Int = 0x00;         // Program Counter
+    public var accum(default, default): Int = 0x00;      // Accumulator
+    public var reg_x(default, default): Int = 0x00;      // X Register
+    public var reg_y(default, default): Int = 0x00;      // Y Register
+    public var stkp(default, default): Int = 0x00;       // Stack Pointer
+    public var pc(default, default): Int = 0x00;         // Program Counter
     
-    private var status: Int = 0x00;     // Status Register
+    public var status(default, default): Int = 0x00;     // Status
 
     private var INSTRUCTION: Instruction;
 
@@ -68,6 +68,10 @@ class CPU
             { n: "CPX", o: a.CPX, m: a.IMM, c: 2  },{ n: "SBC", o: a.SBC, m: a.IZX, c: 6  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "CPX", o: a.CPX, m: a.ZP0, c: 3  },{ n: "SBC", o: a.SBC, m: a.ZP0, c: 3  },{ n: "INC", o: a.INC, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "INX", o: a.INX, m: a.IMP, c: 2  },{ n: "SBC", o: a.SBC, m: a.IMM, c: 2  },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.SBC, m: a.IMP, c: 2  },{ n: "CPX", o: a.CPX, m: a.ABS, c: 4  },{ n: "SBC", o: a.SBC, m: a.ABS, c: 4  },{ n: "INC", o: a.INC, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
             { n: "BEQ", o: a.BEQ, m: a.REL, c: 2  },{ n: "SBC", o: a.SBC, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "SBC", o: a.SBC, m: a.ZPX, c: 4  },{ n: "INC", o: a.INC, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "SED", o: a.SED, m: a.IMP, c: 2  },{ n: "SBC", o: a.SBC, m: a.ABY, c: 4  },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "SBC", o: a.SBC, m: a.ABX, c: 4  },{ n: "INC", o: a.INC, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  }
         );
+    }
+
+    public function complete(): Bool {
+        return cycles == 0;
     }
 
     // ADDRESSING MODES
@@ -920,7 +924,7 @@ class CPU
         return this.bus.read(addr, false);
     }
 
-    private function get_flag(flag: FLAG): Int {
+    public function get_flag(flag: FLAG): Int {
         return ((status & flags.get(flag)) > 0) ? 1 : 0;
     }
 
@@ -959,10 +963,62 @@ class CPU
             addr++;
             inst += lookup[opcode].n + " ";
 
-            if (lookup[opcode].m == IMM)
-                inst += " {IMM}";
-
-            // Additional lookup appends
+            if (lookup[opcode].m == IMP) {
+                inst += " {IMP}";
+            }
+            else if (lookup[opcode].m == IMM) {
+                value = bus.read(addr, true); addr++;
+                inst += "#$" + hex(value, 2) + " {IMM}";
+            }
+            else if (lookup[opcode].m == ZP0) {
+                lo = bus.read(addr, true); addr++;
+                hi = 0x00;
+                inst += "$" + hex(lo, 2) + " {ZP0}";
+            }
+            else if (lookup[opcode].m == ZPX) {
+                lo = bus.read(addr, true); addr++;
+                hi = 0x00;
+                inst += "$" + hex(lo, 2) + ", X {ZPX}";
+            }
+            else if (lookup[opcode].m == ZPY) {
+                lo = bus.read(addr, true); addr++;
+                hi = 0x00;
+                inst += "$" + hex(lo, 2) + ", Y {ZPY}";
+            }
+            else if (lookup[opcode].m == IZX) {
+                lo = bus.read(addr, true); addr++;
+                hi = 0x00;
+                inst += "$" + hex(lo, 2) + ", X) {IZX}";
+            }
+            else if (lookup[opcode].m == IZY) {
+                lo = bus.read(addr, true); addr++;
+                hi = 0x00;
+                inst += "$" + hex(lo, 2) + ", Y) {IZY}";
+            }
+            else if (lookup[opcode].m == ABS) {
+                lo = bus.read(addr, true); addr++;
+                hi = bus.read(addr, true); addr++;
+                inst += "$" + hex((hi << 8) | lo, 4) + " {ABS}";
+            }
+            else if (lookup[opcode].m == ABX) {
+                lo = bus.read(addr, true); addr++;
+                hi = bus.read(addr, true); addr++;
+                inst += "$" + hex((hi << 8) | lo, 4) + ", X {ABX}";
+            }
+            else if (lookup[opcode].m == ABY) {
+                lo = bus.read(addr, true); addr++;
+                hi = bus.read(addr, true); addr++;
+                inst += "$" + hex((hi << 8) | lo, 4) + ", Y {ABY}";
+            }
+            else if (lookup[opcode].m == IND) {
+                lo = bus.read(addr, true); addr++;
+                hi = bus.read(addr, true); addr++;
+                inst += "($" + hex((hi << 8) | lo, 4) + ") {IND}";
+            }
+            else if (lookup[opcode].m == REL) {
+                value = bus.read(addr, true); addr++;
+                inst += "$" + hex(value, 2) + " [$" + hex(addr + value, 4) + "] {REL}";
+            }
 
             map_lines[line_addr] = inst;
         }
