@@ -9,6 +9,8 @@ class Bus
 
     public function new(): Void {
         ram = new Vector(64 * 1024);
+        for (i in 0...(64 * 1024))
+            ram[i] = 0x00;
         this.cpu = new CPU();
         this.cpu.connectBus(this);
     }

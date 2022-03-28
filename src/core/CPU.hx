@@ -1,5 +1,6 @@
 package core;
 
+import sys.io.FileInput;
 import macros.InitMacros;
 import haxe.ds.Vector;
 import haxe.ds.EnumValueMap;
@@ -17,6 +18,7 @@ typedef Instruction = {
 class CPU 
 {
     public var fetched: Int = 0x00;
+    public var temp: Int = 0x0000;
     public var addr_abs: Int = 0x0000;
     public var addr_rel: Int = 0x00;
     public var opcode: Int = 0x00;
@@ -24,18 +26,21 @@ class CPU
 
     private var bus: Bus;
     private var flags: EnumValueMap<FLAG, Int>;
+    private var values: Map<FLAG, Int>;
 
     public var accum(default, default): Int = 0x00;      // Accumulator
     public var reg_x(default, default): Int = 0x00;      // X Register
     public var reg_y(default, default): Int = 0x00;      // Y Register
     public var stkp(default, default): Int = 0x00;       // Stack Pointer
-    public var pc(default, default): Int = 0x00;         // Program Counter
+    public var pc(default, default): Int = 0x0000;       // Program Counter
     
     public var status(default, default): Int = 0x00;     // Status
 
     private var INSTRUCTION: Instruction;
 
     private var lookup: Vector<Instruction>;
+
+    private var logfile: FileInput;
 
     public function new(): Void {
         this.flags = [ 
@@ -49,24 +54,35 @@ class CPU
             FLAG.N => (1 << 7),         // Negative
         ];
 
+        this.values = [
+            FLAG.C => 1,
+            FLAG.Z => 2,
+            FLAG.I => 3,
+            FLAG.D => 4,
+            FLAG.B => 5,
+            FLAG.U => 6,
+            FLAG.V => 7,
+            FLAG.N => 8,
+        ];
+
         var a = this;
         this.lookup = InitMacros.InitVector(
-            { n: "BRK", o: a.BRK, m: a.IMM, c: 7  },{ n: "ORA", o: a.ORA, m: a.IZX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 3  },{ n: "ORA", o: a.ORA, m: a.ZP0, c: 3  },{ n: "ASL", o: a.ASL, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "PHP", o: a.PHP, m: a.IMP, c: 3  },{ n: "ORA", o: a.ORA, m: a.IMM, c: 2  },{ n: "ASL", o: a.ASL, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "ORA", o: a.ORA, m: a.ABS, c: 4  },{ n: "ASL", o: a.ASL, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BPL", o: a.BPL, m: a.REL, c: 2  },{ n: "ORA", o: a.ORA, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "ORA", o: a.ORA, m: a.ZPX, c: 4  },{ n: "ASL", o: a.ASL, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "CLC", o: a.CLC, m: a.IMP, c: 2  },{ n: "ORA", o: a.ORA, m: a.ABY, c: 4  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "ORA", o: a.ORA, m: a.ABX, c: 4  },{ n: "ASL", o: a.ASL, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },
-            { n: "JSR", o: a.JSR, m: a.ABS, c: 6  },{ n: "AND", o: a.AND, m: a.IZX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "BIT", o: a.BIT, m: a.ZP0, c: 3  },{ n: "AND", o: a.AND, m: a.ZP0, c: 3  },{ n: "ROL", o: a.ROL, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "PLP", o: a.PLP, m: a.IMP, c: 4  },{ n: "AND", o: a.AND, m: a.IMM, c: 2  },{ n: "ROL", o: a.ROL, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "BIT", o: a.BIT, m: a.ABS, c: 4  },{ n: "AND", o: a.AND, m: a.ABS, c: 4  },{ n: "ROL", o: a.ROL, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BMI", o: a.BMI, m: a.REL, c: 2  },{ n: "AND", o: a.AND, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "AND", o: a.AND, m: a.ZPX, c: 4  },{ n: "ROL", o: a.ROL, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "SEC", o: a.SEC, m: a.IMP, c: 2  },{ n: "AND", o: a.AND, m: a.ABY, c: 4  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "AND", o: a.AND, m: a.ABX, c: 4  },{ n: "ROL", o: a.ROL, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },
-            { n: "RTI", o: a.RTI, m: a.IMP, c: 6  },{ n: "EOR", o: a.EOR, m: a.IZX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 3  },{ n: "EOR", o: a.EOR, m: a.ZP0, c: 3  },{ n: "LSR", o: a.LSR, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "PHA", o: a.PHA, m: a.IMP, c: 3  },{ n: "EOR", o: a.EOR, m: a.IMM, c: 2  },{ n: "LSR", o: a.LSR, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "JMP", o: a.JMP, m: a.ABS, c: 3  },{ n: "EOR", o: a.EOR, m: a.ABS, c: 4  },{ n: "LSR", o: a.LSR, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BVC", o: a.BVC, m: a.REL, c: 2  },{ n: "EOR", o: a.EOR, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "EOR", o: a.EOR, m: a.ZPX, c: 4  },{ n: "LSR", o: a.LSR, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "CLI", o: a.CLI, m: a.IMP, c: 2  },{ n: "EOR", o: a.EOR, m: a.ABY, c: 4  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "EOR", o: a.EOR, m: a.ABX, c: 4  },{ n: "LSR", o: a.LSR, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },
-            { n: "RTS", o: a.RTS, m: a.IMP, c: 6  },{ n: "ADC", o: a.ADC, m: a.IZX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 3  },{ n: "ADC", o: a.ADC, m: a.ZP0, c: 3  },{ n: "ROR", o: a.ROR, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "PLA", o: a.PLA, m: a.IMP, c: 4  },{ n: "ADC", o: a.ADC, m: a.IMM, c: 2  },{ n: "ROR", o: a.ROR, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "JMP", o: a.JMP, m: a.IND, c: 5  },{ n: "ADC", o: a.ADC, m: a.ABS, c: 4  },{ n: "ROR", o: a.ROR, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BVS", o: a.BVS, m: a.REL, c: 2  },{ n: "ADC", o: a.ADC, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "ADC", o: a.ADC, m: a.ZPX, c: 4  },{ n: "ROR", o: a.ROR, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "SEI", o: a.SEI, m: a.IMP, c: 2  },{ n: "ADC", o: a.ADC, m: a.ABY, c: 4  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "ADC", o: a.ADC, m: a.ABX, c: 4  },{ n: "ROR", o: a.ROR, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },
-            { n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "STA", o: a.STA, m: a.IZX, c: 6  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "STY", o: a.STY, m: a.ZP0, c: 3  },{ n: "STA", o: a.STA, m: a.ZP0, c: 3  },{ n: "STX", o: a.STX, m: a.ZP0, c: 3  },{ n: "???", o: a.XXX, m: a.IMP, c: 3  },{ n: "DEY", o: a.DEY, m: a.IMP, c: 2  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "TXA", o: a.TXA, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "STY", o: a.STY, m: a.ABS, c: 4  },{ n: "STA", o: a.STA, m: a.ABS, c: 4  },{ n: "STX", o: a.STX, m: a.ABS, c: 4  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },
-            { n: "BCC", o: a.BCC, m: a.REL, c: 2  },{ n: "STA", o: a.STA, m: a.IZY, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "STY", o: a.STY, m: a.ZPX, c: 4  },{ n: "STA", o: a.STA, m: a.ZPX, c: 4  },{ n: "STX", o: a.STX, m: a.ZPY, c: 4  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },{ n: "TYA", o: a.TYA, m: a.IMP, c: 2  },{ n: "STA", o: a.STA, m: a.ABY, c: 5  },{ n: "TXS", o: a.TXS, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "???", o: a.NOP, m: a.IMP, c: 5  },{ n: "STA", o: a.STA, m: a.ABX, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },
-            { n: "LDY", o: a.LDY, m: a.IMM, c: 2  },{ n: "LDA", o: a.LDA, m: a.IZX, c: 6  },{ n: "LDX", o: a.LDX, m: a.IMM, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "LDY", o: a.LDY, m: a.ZP0, c: 3  },{ n: "LDA", o: a.LDA, m: a.ZP0, c: 3  },{ n: "LDX", o: a.LDX, m: a.ZP0, c: 3  },{ n: "???", o: a.XXX, m: a.IMP, c: 3  },{ n: "TAY", o: a.TAY, m: a.IMP, c: 2  },{ n: "LDA", o: a.LDA, m: a.IMM, c: 2  },{ n: "TAX", o: a.TAX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "LDY", o: a.LDY, m: a.ABS, c: 4  },{ n: "LDA", o: a.LDA, m: a.ABS, c: 4  },{ n: "LDX", o: a.LDX, m: a.ABS, c: 4  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },
-            { n: "BCS", o: a.BCS, m: a.REL, c: 2  },{ n: "LDA", o: a.LDA, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "LDY", o: a.LDY, m: a.ZPX, c: 4  },{ n: "LDA", o: a.LDA, m: a.ZPX, c: 4  },{ n: "LDX", o: a.LDX, m: a.ZPY, c: 4  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },{ n: "CLV", o: a.CLV, m: a.IMP, c: 2  },{ n: "LDA", o: a.LDA, m: a.ABY, c: 4  },{ n: "TSX", o: a.TSX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },{ n: "LDY", o: a.LDY, m: a.ABX, c: 4  },{ n: "LDA", o: a.LDA, m: a.ABX, c: 4  },{ n: "LDX", o: a.LDX, m: a.ABY, c: 4  },{ n: "???", o: a.XXX, m: a.IMP, c: 4  },
-            { n: "CPY", o: a.CPY, m: a.IMM, c: 2  },{ n: "CMP", o: a.CMP, m: a.IZX, c: 6  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "CPY", o: a.CPY, m: a.ZP0, c: 3  },{ n: "CMP", o: a.CMP, m: a.ZP0, c: 3  },{ n: "DEC", o: a.DEC, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "INY", o: a.INY, m: a.IMP, c: 2  },{ n: "CMP", o: a.CMP, m: a.IMM, c: 2  },{ n: "DEX", o: a.DEX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "CPY", o: a.CPY, m: a.ABS, c: 4  },{ n: "CMP", o: a.CMP, m: a.ABS, c: 4  },{ n: "DEC", o: a.DEC, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BNE", o: a.BNE, m: a.REL, c: 2  },{ n: "CMP", o: a.CMP, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "CMP", o: a.CMP, m: a.ZPX, c: 4  },{ n: "DEC", o: a.DEC, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "CLD", o: a.CLD, m: a.IMP, c: 2  },{ n: "CMP", o: a.CMP, m: a.ABY, c: 4  },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "CMP", o: a.CMP, m: a.ABX, c: 4  },{ n: "DEC", o: a.DEC, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },
-            { n: "CPX", o: a.CPX, m: a.IMM, c: 2  },{ n: "SBC", o: a.SBC, m: a.IZX, c: 6  },{ n: "???", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "CPX", o: a.CPX, m: a.ZP0, c: 3  },{ n: "SBC", o: a.SBC, m: a.ZP0, c: 3  },{ n: "INC", o: a.INC, m: a.ZP0, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 5  },{ n: "INX", o: a.INX, m: a.IMP, c: 2  },{ n: "SBC", o: a.SBC, m: a.IMM, c: 2  },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.SBC, m: a.IMP, c: 2  },{ n: "CPX", o: a.CPX, m: a.ABS, c: 4  },{ n: "SBC", o: a.SBC, m: a.ABS, c: 4  },{ n: "INC", o: a.INC, m: a.ABS, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },
-            { n: "BEQ", o: a.BEQ, m: a.REL, c: 2  },{ n: "SBC", o: a.SBC, m: a.IZY, c: 5  },{ n: "???", o: a.XXX, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 8  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "SBC", o: a.SBC, m: a.ZPX, c: 4  },{ n: "INC", o: a.INC, m: a.ZPX, c: 6  },{ n: "???", o: a.XXX, m: a.IMP, c: 6  },{ n: "SED", o: a.SED, m: a.IMP, c: 2  },{ n: "SBC", o: a.SBC, m: a.ABY, c: 4  },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  },{ n: "???", o: a.NOP, m: a.IMP, c: 4  },{ n: "SBC", o: a.SBC, m: a.ABX, c: 4  },{ n: "INC", o: a.INC, m: a.ABX, c: 7  },{ n: "???", o: a.XXX, m: a.IMP, c: 7  }
+            { n: "BRK", o: a.BRK, m: a.IMM, c: 7 },{ n: "ORA", o: a.ORA, m: a.IZX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 3 },{ n: "ORA", o: a.ORA, m: a.ZP0, c: 3 },{ n: "ASL", o: a.ASL, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "PHP", o: a.PHP, m: a.IMP, c: 3 },{ n: "ORA", o: a.ORA, m: a.IMM, c: 2 },{ n: "ASL", o: a.ASL, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "ORA", o: a.ORA, m: a.ABS, c: 4 },{ n: "ASL", o: a.ASL, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BPL", o: a.BPL, m: a.REL, c: 2 },{ n: "ORA", o: a.ORA, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "ORA", o: a.ORA, m: a.ZPX, c: 4 },{ n: "ASL", o: a.ASL, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "CLC", o: a.CLC, m: a.IMP, c: 2 },{ n: "ORA", o: a.ORA, m: a.ABY, c: 4 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "ORA", o: a.ORA, m: a.ABX, c: 4 },{ n: "ASL", o: a.ASL, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },
+            { n: "JSR", o: a.JSR, m: a.ABS, c: 6 },{ n: "AND", o: a.AND, m: a.IZX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "BIT", o: a.BIT, m: a.ZP0, c: 3 },{ n: "AND", o: a.AND, m: a.ZP0, c: 3 },{ n: "ROL", o: a.ROL, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "PLP", o: a.PLP, m: a.IMP, c: 4 },{ n: "AND", o: a.AND, m: a.IMM, c: 2 },{ n: "ROL", o: a.ROL, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "BIT", o: a.BIT, m: a.ABS, c: 4 },{ n: "AND", o: a.AND, m: a.ABS, c: 4 },{ n: "ROL", o: a.ROL, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BMI", o: a.BMI, m: a.REL, c: 2 },{ n: "AND", o: a.AND, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "AND", o: a.AND, m: a.ZPX, c: 4 },{ n: "ROL", o: a.ROL, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "SEC", o: a.SEC, m: a.IMP, c: 2 },{ n: "AND", o: a.AND, m: a.ABY, c: 4 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "AND", o: a.AND, m: a.ABX, c: 4 },{ n: "ROL", o: a.ROL, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },
+            { n: "RTI", o: a.RTI, m: a.IMP, c: 6 },{ n: "EOR", o: a.EOR, m: a.IZX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 3 },{ n: "EOR", o: a.EOR, m: a.ZP0, c: 3 },{ n: "LSR", o: a.LSR, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "PHA", o: a.PHA, m: a.IMP, c: 3 },{ n: "EOR", o: a.EOR, m: a.IMM, c: 2 },{ n: "LSR", o: a.LSR, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "JMP", o: a.JMP, m: a.ABS, c: 3 },{ n: "EOR", o: a.EOR, m: a.ABS, c: 4 },{ n: "LSR", o: a.LSR, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BVC", o: a.BVC, m: a.REL, c: 2 },{ n: "EOR", o: a.EOR, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "EOR", o: a.EOR, m: a.ZPX, c: 4 },{ n: "LSR", o: a.LSR, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "CLI", o: a.CLI, m: a.IMP, c: 2 },{ n: "EOR", o: a.EOR, m: a.ABY, c: 4 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "EOR", o: a.EOR, m: a.ABX, c: 4 },{ n: "LSR", o: a.LSR, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },
+            { n: "RTS", o: a.RTS, m: a.IMP, c: 6 },{ n: "ADC", o: a.ADC, m: a.IZX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 3 },{ n: "ADC", o: a.ADC, m: a.ZP0, c: 3 },{ n: "ROR", o: a.ROR, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "PLA", o: a.PLA, m: a.IMP, c: 4 },{ n: "ADC", o: a.ADC, m: a.IMM, c: 2 },{ n: "ROR", o: a.ROR, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "JMP", o: a.JMP, m: a.IND, c: 5 },{ n: "ADC", o: a.ADC, m: a.ABS, c: 4 },{ n: "ROR", o: a.ROR, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BVS", o: a.BVS, m: a.REL, c: 2 },{ n: "ADC", o: a.ADC, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "ADC", o: a.ADC, m: a.ZPX, c: 4 },{ n: "ROR", o: a.ROR, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "SEI", o: a.SEI, m: a.IMP, c: 2 },{ n: "ADC", o: a.ADC, m: a.ABY, c: 4 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "ADC", o: a.ADC, m: a.ABX, c: 4 },{ n: "ROR", o: a.ROR, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },
+            { n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "STA", o: a.STA, m: a.IZX, c: 6 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "STY", o: a.STY, m: a.ZP0, c: 3 },{ n: "STA", o: a.STA, m: a.ZP0, c: 3 },{ n: "STX", o: a.STX, m: a.ZP0, c: 3 },{ n: "???", o: a.XXX, m: a.IMP, c: 3 },{ n: "DEY", o: a.DEY, m: a.IMP, c: 2 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "TXA", o: a.TXA, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "STY", o: a.STY, m: a.ABS, c: 4 },{ n: "STA", o: a.STA, m: a.ABS, c: 4 },{ n: "STX", o: a.STX, m: a.ABS, c: 4 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },
+            { n: "BCC", o: a.BCC, m: a.REL, c: 2 },{ n: "STA", o: a.STA, m: a.IZY, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "STY", o: a.STY, m: a.ZPX, c: 4 },{ n: "STA", o: a.STA, m: a.ZPX, c: 4 },{ n: "STX", o: a.STX, m: a.ZPY, c: 4 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },{ n: "TYA", o: a.TYA, m: a.IMP, c: 2 },{ n: "STA", o: a.STA, m: a.ABY, c: 5 },{ n: "TXS", o: a.TXS, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "???", o: a.NOP, m: a.IMP, c: 5 },{ n: "STA", o: a.STA, m: a.ABX, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },
+            { n: "LDY", o: a.LDY, m: a.IMM, c: 2 },{ n: "LDA", o: a.LDA, m: a.IZX, c: 6 },{ n: "LDX", o: a.LDX, m: a.IMM, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "LDY", o: a.LDY, m: a.ZP0, c: 3 },{ n: "LDA", o: a.LDA, m: a.ZP0, c: 3 },{ n: "LDX", o: a.LDX, m: a.ZP0, c: 3 },{ n: "???", o: a.XXX, m: a.IMP, c: 3 },{ n: "TAY", o: a.TAY, m: a.IMP, c: 2 },{ n: "LDA", o: a.LDA, m: a.IMM, c: 2 },{ n: "TAX", o: a.TAX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "LDY", o: a.LDY, m: a.ABS, c: 4 },{ n: "LDA", o: a.LDA, m: a.ABS, c: 4 },{ n: "LDX", o: a.LDX, m: a.ABS, c: 4 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },
+            { n: "BCS", o: a.BCS, m: a.REL, c: 2 },{ n: "LDA", o: a.LDA, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "LDY", o: a.LDY, m: a.ZPX, c: 4 },{ n: "LDA", o: a.LDA, m: a.ZPX, c: 4 },{ n: "LDX", o: a.LDX, m: a.ZPY, c: 4 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },{ n: "CLV", o: a.CLV, m: a.IMP, c: 2 },{ n: "LDA", o: a.LDA, m: a.ABY, c: 4 },{ n: "TSX", o: a.TSX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },{ n: "LDY", o: a.LDY, m: a.ABX, c: 4 },{ n: "LDA", o: a.LDA, m: a.ABX, c: 4 },{ n: "LDX", o: a.LDX, m: a.ABY, c: 4 },{ n: "???", o: a.XXX, m: a.IMP, c: 4 },
+            { n: "CPY", o: a.CPY, m: a.IMM, c: 2 },{ n: "CMP", o: a.CMP, m: a.IZX, c: 6 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "CPY", o: a.CPY, m: a.ZP0, c: 3 },{ n: "CMP", o: a.CMP, m: a.ZP0, c: 3 },{ n: "DEC", o: a.DEC, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "INY", o: a.INY, m: a.IMP, c: 2 },{ n: "CMP", o: a.CMP, m: a.IMM, c: 2 },{ n: "DEX", o: a.DEX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "CPY", o: a.CPY, m: a.ABS, c: 4 },{ n: "CMP", o: a.CMP, m: a.ABS, c: 4 },{ n: "DEC", o: a.DEC, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BNE", o: a.BNE, m: a.REL, c: 2 },{ n: "CMP", o: a.CMP, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "CMP", o: a.CMP, m: a.ZPX, c: 4 },{ n: "DEC", o: a.DEC, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "CLD", o: a.CLD, m: a.IMP, c: 2 },{ n: "CMP", o: a.CMP, m: a.ABY, c: 4 },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "CMP", o: a.CMP, m: a.ABX, c: 4 },{ n: "DEC", o: a.DEC, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },
+            { n: "CPX", o: a.CPX, m: a.IMM, c: 2 },{ n: "SBC", o: a.SBC, m: a.IZX, c: 6 },{ n: "???", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "CPX", o: a.CPX, m: a.ZP0, c: 3 },{ n: "SBC", o: a.SBC, m: a.ZP0, c: 3 },{ n: "INC", o: a.INC, m: a.ZP0, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 5 },{ n: "INX", o: a.INX, m: a.IMP, c: 2 },{ n: "SBC", o: a.SBC, m: a.IMM, c: 2 },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.SBC, m: a.IMP, c: 2 },{ n: "CPX", o: a.CPX, m: a.ABS, c: 4 },{ n: "SBC", o: a.SBC, m: a.ABS, c: 4 },{ n: "INC", o: a.INC, m: a.ABS, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },
+            { n: "BEQ", o: a.BEQ, m: a.REL, c: 2 },{ n: "SBC", o: a.SBC, m: a.IZY, c: 5 },{ n: "???", o: a.XXX, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 8 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "SBC", o: a.SBC, m: a.ZPX, c: 4 },{ n: "INC", o: a.INC, m: a.ZPX, c: 6 },{ n: "???", o: a.XXX, m: a.IMP, c: 6 },{ n: "SED", o: a.SED, m: a.IMP, c: 2 },{ n: "SBC", o: a.SBC, m: a.ABY, c: 4 },{ n: "NOP", o: a.NOP, m: a.IMP, c: 2 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 },{ n: "???", o: a.NOP, m: a.IMP, c: 4 },{ n: "SBC", o: a.SBC, m: a.ABX, c: 4 },{ n: "INC", o: a.INC, m: a.ABX, c: 7 },{ n: "???", o: a.XXX, m: a.IMP, c: 7 }
         );
     }
 
@@ -115,7 +131,7 @@ class CPU
     public function REL(): Int { 
         addr_rel = read(pc);
         pc++;
-        if (cast(addr_rel & 0x80))
+        if ((addr_rel & 0x80) > 0)
             addr_rel |= 0xFF00;
         return 0; 
     }
@@ -134,6 +150,7 @@ class CPU
         pc++;
         var hi = read(pc);
         pc++;
+
         addr_abs = (hi << 8) | lo;
         addr_abs += reg_x;
         
@@ -148,6 +165,7 @@ class CPU
         pc++;
         var hi = read(pc);
         pc++;
+
         addr_abs = (hi << 8) | lo;
         addr_abs += reg_y;
         
@@ -178,8 +196,9 @@ class CPU
         var t = read(pc);
         pc++;
 
-        var lo = read(t + reg_x) & 0x00FF;
-        var hi = read(t + reg_x + 1) & 0x00FF;
+        var lo = read(t + reg_x & 0x00FF);
+        var hi = read(t + reg_x + 1 & 0x00FF);
+
         addr_abs = (hi << 8) | lo;
         return 0;
     }
@@ -204,8 +223,12 @@ class CPU
 
     // Addition
     public function ADC(): Int { 
+        // Grab the data that we are adding to the accumulator
         fetch();
-        var temp = accum + fetched + get_flag(C);
+
+        // Add is performed in 16-bit domain for emulation to capture any 
+        // carry bit, which will existing in bit 8 of the 16-bit word
+        temp = accum + fetched + get_flag(C);
         set_flag(C, temp > 255);
         set_flag(Z, (temp & 0x00FF) == 0);
         set_flag(N, cast(temp & 0x80));
@@ -230,7 +253,7 @@ class CPU
     // Flags Out:   N, Z, C
     public function ASL(): Int { 
         fetch();
-        var temp = fetched << 1;
+        temp = fetched << 1;
         set_flag(C, (temp & 0xFF00) > 0);
         set_flag(Z, (temp & 0x00FF) == 0x00);
         set_flag(N, cast(temp & 0x80));
@@ -290,7 +313,7 @@ class CPU
 
     public function BIT(): Int { 
         fetch();
-        var temp = accum & fetched;
+        temp = accum & fetched;
         set_flag(Z, (temp & 0x00FF) == 0x00);
         set_flag(N, cast(fetched & (1 << 7)));
         set_flag(V, cast(fetched & (1 << 6)));
@@ -317,7 +340,9 @@ class CPU
     public function BNE(): Int { 
         if (get_flag(Z) == 0) {
             cycles++;
-            addr_abs = pc + addr_rel;
+            
+            var signed = pc + addr_rel;
+            addr_abs = signed & 0xFFFF;
 
             if ((addr_abs & 0xFF00) != (pc & 0xFF00))
                 cycles++;
@@ -423,7 +448,7 @@ class CPU
     // Flags Out:   N, C, Z
     public function CMP(): Int { 
         fetch();
-        var temp = accum - fetched;
+        temp = accum - fetched;
         set_flag(C, accum >= fetched);
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x0080));
@@ -435,7 +460,7 @@ class CPU
     // Flags Out:   N, C, Z
     public function CPX(): Int { 
         fetch();
-        var temp = reg_x - fetched;
+        temp = reg_x - fetched;
         set_flag(C, reg_x >= fetched);
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x080));
@@ -447,7 +472,7 @@ class CPU
     // Flags Out:   N, C, Z
     public function CPY(): Int { 
         fetch();
-        var temp = reg_x - fetched;
+        temp = reg_x - fetched;
         set_flag(C, reg_x >= fetched);
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x080));
@@ -459,7 +484,7 @@ class CPU
     // Flags Out:   N, Z
     public function DEC(): Int { 
         fetch();
-        var temp = fetched - 1;
+        temp = fetched - 1;
         write(addr_abs, temp & 0x00FF);
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x0080));
@@ -502,7 +527,7 @@ class CPU
     // Flags Out:   N, Z
     public function INC(): Int { 
         fetch();
-        var temp = fetched + 1;
+        temp = fetched + 1;
         write(addr_abs, cast(temp & 0x00FF));
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x0080));
@@ -558,7 +583,7 @@ class CPU
         accum = fetched;
         set_flag(Z, accum == 0x00);
         set_flag(N, cast(accum & 0x80));
-        return 0; 
+        return 1; 
     }
 
     // Instruction: Load the X Register
@@ -586,7 +611,7 @@ class CPU
     public function LSR(): Int { 
         fetch();
         set_flag(C, cast(fetched & 0x0001));
-        var temp = fetched >> 1;
+        temp = fetched >> 1;
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x0080));
         if (lookup[opcode].m == IMP)
@@ -661,7 +686,7 @@ class CPU
 
     public function ROL(): Int { 
         fetch();
-        var temp = (fetched << 1) | get_flag(C);
+        temp = (fetched << 1) | get_flag(C);
         set_flag(C, cast(temp & 0xFF00));
         set_flag(Z, (temp & 0x00FF) == 0x0000);
         set_flag(N, cast(temp & 0x0080));
@@ -674,7 +699,7 @@ class CPU
 
     public function ROR(): Int { 
         fetch();
-        var temp = (get_flag(C) << 7) | (fetched >> 1);
+        temp = (get_flag(C) << 7) | (fetched >> 1);
         set_flag(C, cast(fetched & 0x01));
         set_flag(Z, (temp & 0x00FF) == 0x00);
         set_flag(N, cast(temp & 0x0080));
@@ -713,7 +738,7 @@ class CPU
     public function SBC(): Int { 
         fetch();
         var value = fetched ^ 0x00FF;
-        var temp = accum + value + get_flag(C);
+        temp = accum + value + get_flag(C);
         set_flag(C, cast(temp & 0xFF00));
         set_flag(V, cast((temp ^ accum) & (temp ^ value) & 0x0080));
         set_flag(N, cast(temp & 0x0080));
@@ -828,6 +853,7 @@ class CPU
     public function clock(): Void {
         if (this.cycles == 0) {
             opcode = read(pc);
+            set_flag(U, true);
             pc++;
 
             // Get starting number of cycles
@@ -836,28 +862,35 @@ class CPU
             var additional_cycle2 = lookup[opcode].o();
             
             cycles += (additional_cycle1 & additional_cycle2);
+            set_flag(U, true);
         }
 
         cycles--;
+        // trace(this.cycles);
     }
 
     public function reset(): Void {
-        accum = 0;
-        reg_x = 0;
-        reg_y = 0;
-        stkp = 0xFD;
-        status = 0x00 | get_flag(U);
-
+        // Get address to set program counter to
         addr_abs = 0xFFFC;
         var lo = read(addr_abs + 0);
         var hi = read(addr_abs + 1);
 
+        // Set it
         pc = (hi << 8) | lo;
 
+        // Reset internal registers
+        accum = 0;
+        reg_x = 0;
+        reg_y = 0;
+        stkp = 0xFD;
+        status = 0x00;
+
+        // Clear internal helper variables
         addr_rel = 0x0000;
         addr_abs = 0x0000;
         fetched = 0x00;
 
+        // Reset takes time
         cycles = 8;
     }
 
@@ -924,15 +957,20 @@ class CPU
         return this.bus.read(addr, false);
     }
 
+    public function get_value(flag: FLAG): Int {
+        return flags.get(flag);
+    }
+
     public function get_flag(flag: FLAG): Int {
         return ((status & flags.get(flag)) > 0) ? 1 : 0;
     }
 
     private function set_flag(flag: FLAG, v: Bool): Void {
-        if (v)
+        if (v == true) {
             status |= flags.get(flag);
-        else 
+        } else {
             status &= ~flags.get(flag);
+        }
     }
 
     public function disassemble(start: Int, stop: Int): Map<Int, String>

@@ -96,14 +96,14 @@ class Screen
         var GREEN = 0x00FF00;
 
         print(x, y, "STATUS:", 0xFFFFFF);
-        print(x + 64,  y, "N", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.N), Bool) ? GREEN : RED);
-        print(x + 80,  y, "V", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.V), Bool) ? GREEN : RED);
-        print(x + 96,  y, "-", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.U), Bool) ? GREEN : RED);
-        print(x + 112, y, "B", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.B), Bool) ? GREEN : RED);
-        print(x + 128, y, "D", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.D), Bool) ? GREEN : RED);
-        print(x + 144, y, "I", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.I), Bool) ? GREEN : RED);
-        print(x + 160, y, "Z", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.Z), Bool) ? GREEN : RED);
-        print(x + 178, y, "C", cast(nes.cpu.status & nes.cpu.get_flag(FLAG.C), Bool) ? GREEN : RED);
+        print(x + 64,  y, "N", nes.cpu.status & nes.cpu.get_value(FLAG.N) > 0 ? GREEN : RED);
+        print(x + 80,  y, "V", nes.cpu.status & nes.cpu.get_value(FLAG.V) > 0 ? GREEN : RED);
+        print(x + 96,  y, "-", nes.cpu.status & nes.cpu.get_value(FLAG.U) > 0 ? GREEN : RED);
+        print(x + 112, y, "B", nes.cpu.status & nes.cpu.get_value(FLAG.B) > 0 ? GREEN : RED);
+        print(x + 128, y, "D", nes.cpu.status & nes.cpu.get_value(FLAG.D) > 0 ? GREEN : RED);
+        print(x + 144, y, "I", nes.cpu.status & nes.cpu.get_value(FLAG.I) > 0 ? GREEN : RED);
+        print(x + 160, y, "Z", nes.cpu.status & nes.cpu.get_value(FLAG.Z) > 0 ? GREEN : RED);
+        print(x + 178, y, "C", nes.cpu.status & nes.cpu.get_value(FLAG.C) > 0 ? GREEN : RED);
         print(x, y + 16, "PC: $" + hex(nes.cpu.pc, 4));
         print(x, y + 32, "A:  $" + hex(nes.cpu.accum, 2) + "  [" + nes.cpu.accum + "]");
         print(x, y + 48, "X:  $" + hex(nes.cpu.reg_x, 2) + "  [" + nes.cpu.reg_x + "]");
