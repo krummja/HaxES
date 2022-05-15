@@ -1,5 +1,6 @@
 package core;
 
+import view.Screen;
 import sys.io.FileInput;
 import macros.InitMacros;
 import haxe.ds.Vector;
@@ -15,6 +16,7 @@ typedef Instruction = {
     c: Int,             // Cycles
 }
 
+// Emulation of a 6502 Microprocessor
 class CPU 
 {
     public var fetched: Int = 0x00;
@@ -24,23 +26,18 @@ class CPU
     public var opcode: Int = 0x00;
     public var cycles: Int = 0;
 
-    private var bus: Bus;
-    private var flags: EnumValueMap<FLAG, Int>;
-    private var values: Map<FLAG, Int>;
-
     public var accum(default, default): Int = 0x00;      // Accumulator
     public var reg_x(default, default): Int = 0x00;      // X Register
     public var reg_y(default, default): Int = 0x00;      // Y Register
     public var stkp(default, default): Int = 0x00;       // Stack Pointer
     public var pc(default, default): Int = 0x0000;       // Program Counter
-    
     public var status(default, default): Int = 0x00;     // Status
-
+    
+    private var bus: Bus;
+    private var flags: EnumValueMap<FLAG, Int>;
+    private var values: Map<FLAG, Int>;
     private var INSTRUCTION: Instruction;
-
     private var lookup: Vector<Instruction>;
-
-    private var logfile: FileInput;
 
     public function new(): Void {
         this.flags = [ 
@@ -52,17 +49,6 @@ class CPU
             FLAG.U => (1 << 5),         // Unused
             FLAG.V => (1 << 6),         // Overflow
             FLAG.N => (1 << 7),         // Negative
-        ];
-
-        this.values = [
-            FLAG.C => 1,
-            FLAG.Z => 2,
-            FLAG.I => 3,
-            FLAG.D => 4,
-            FLAG.B => 5,
-            FLAG.U => 6,
-            FLAG.V => 7,
-            FLAG.N => 8,
         ];
 
         var a = this;
@@ -938,30 +924,31 @@ class CPU
 
     // INTERNALS
 
-    public function fetch(): Int { 
+    private function fetch(): Int { 
         if (!(lookup[opcode].m == IMP))
             fetched = read(addr_abs);
         return fetched;
     }
-    
+
     @:allow(core.Bus)
     private function connectBus(bus: Bus): Void {
         this.bus = bus;
     }
 
     private function write(addr: Int, data: Int): Void {
-        this.bus.write(addr, data);
+        this.bus.cpuWrite(addr, data);
     }
 
     private function read(addr: Int): Int { 
-        return this.bus.read(addr, false);
+        return this.bus.cpuRead(addr, false);
     }
 
-    public function get_value(flag: FLAG): Int {
+    @:allow(view.Screen)
+    private function get_value(flag: FLAG): Int {
         return flags.get(flag);
     }
 
-    public function get_flag(flag: FLAG): Int {
+    private function get_flag(flag: FLAG): Int {
         return ((status & flags.get(flag)) > 0) ? 1 : 0;
     }
 
@@ -973,7 +960,8 @@ class CPU
         }
     }
 
-    public function disassemble(start: Int, stop: Int): Map<Int, String>
+    @:allow(view.Screen)
+    private function disassemble(start: Int, stop: Int): Map<Int, String>
     {
         var addr = start;
         var value = 0x00;
@@ -997,7 +985,7 @@ class CPU
         while (addr <= stop) {
             line_addr = addr;
             var inst = "$" + hex(addr, 4) + ": ";
-            var opcode = bus.read(addr, true);
+            var opcode = bus.cpuRead(addr, true);
             addr++;
             inst += lookup[opcode].n + " ";
 
@@ -1005,56 +993,56 @@ class CPU
                 inst += " {IMP}";
             }
             else if (lookup[opcode].m == IMM) {
-                value = bus.read(addr, true); addr++;
+                value = bus.cpuRead(addr, true); addr++;
                 inst += "#$" + hex(value, 2) + " {IMM}";
             }
             else if (lookup[opcode].m == ZP0) {
-                lo = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
                 hi = 0x00;
                 inst += "$" + hex(lo, 2) + " {ZP0}";
             }
             else if (lookup[opcode].m == ZPX) {
-                lo = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
                 hi = 0x00;
                 inst += "$" + hex(lo, 2) + ", X {ZPX}";
             }
             else if (lookup[opcode].m == ZPY) {
-                lo = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
                 hi = 0x00;
                 inst += "$" + hex(lo, 2) + ", Y {ZPY}";
             }
             else if (lookup[opcode].m == IZX) {
-                lo = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
                 hi = 0x00;
                 inst += "$" + hex(lo, 2) + ", X) {IZX}";
             }
             else if (lookup[opcode].m == IZY) {
-                lo = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
                 hi = 0x00;
                 inst += "$" + hex(lo, 2) + ", Y) {IZY}";
             }
             else if (lookup[opcode].m == ABS) {
-                lo = bus.read(addr, true); addr++;
-                hi = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
+                hi = bus.cpuRead(addr, true); addr++;
                 inst += "$" + hex((hi << 8) | lo, 4) + " {ABS}";
             }
             else if (lookup[opcode].m == ABX) {
-                lo = bus.read(addr, true); addr++;
-                hi = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
+                hi = bus.cpuRead(addr, true); addr++;
                 inst += "$" + hex((hi << 8) | lo, 4) + ", X {ABX}";
             }
             else if (lookup[opcode].m == ABY) {
-                lo = bus.read(addr, true); addr++;
-                hi = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
+                hi = bus.cpuRead(addr, true); addr++;
                 inst += "$" + hex((hi << 8) | lo, 4) + ", Y {ABY}";
             }
             else if (lookup[opcode].m == IND) {
-                lo = bus.read(addr, true); addr++;
-                hi = bus.read(addr, true); addr++;
+                lo = bus.cpuRead(addr, true); addr++;
+                hi = bus.cpuRead(addr, true); addr++;
                 inst += "($" + hex((hi << 8) | lo, 4) + ") {IND}";
             }
             else if (lookup[opcode].m == REL) {
-                value = bus.read(addr, true); addr++;
+                value = bus.cpuRead(addr, true); addr++;
                 inst += "$" + hex(value, 2) + " [$" + hex(addr + value, 4) + "] {REL}";
             }
 

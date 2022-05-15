@@ -35,11 +35,11 @@ class Screen
 
         var offset = 0x8000;
         for (inst in program) {
-            nes.ram[offset++] = inst;
+            nes.cpuRam[offset++] = inst;
         }
 
-        nes.ram[0xFFFC] = 0x00;
-        nes.ram[0xFFFD] = 0x80;
+        nes.cpuRam[0xFFFC] = 0x00;
+        nes.cpuRam[0xFFFD] = 0x80;
 
         this.map_asm = nes.cpu.disassemble(0x0000, 0xFFFF);
         nes.cpu.reset();
@@ -112,15 +112,18 @@ class Screen
     }
 
     private function draw_ram(x: Int, y: Int, addr: Int, rows: Int, cols: Int): Void {
-        var ram_x = x;
-        var ram_y = y;
+        var ram_x: Int = x;
+        var ram_y: Int = y;
+
         for (_ in 0...rows) {
-            var offset = "$" + hex(addr, 4) + ":";
+            var display_row: String = "$" + hex(addr, 4) + ":";
+
             for (_ in 0...cols) {
-                offset += " " + hex(nes.read(addr, true), 2);
+                display_row += " " + hex(nes.cpuRead(addr, true), 2);
                 addr += 1;
             }
-            print(ram_x, ram_y, offset);
+
+            print(ram_x, ram_y, display_row);
             ram_y += 16;
         }
     }
